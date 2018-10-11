@@ -1,0 +1,2 @@
+# Diabetic-Data-Readmission-Prediction-in-R
+Diabetes is a chronic condition prevalent among more than 100 million people across the world. The chances of readmission of diabetic patients are quite high.The objective of this project is to predict whether the patient will be readmitted to the hospital or not. For predicting it most accurately I have used various prediction models like Logistic Regression, Decision Trees, Neural Networks, Random Forests, SVM and  Naïve Bayes and seen their performance in order to get the best results.
