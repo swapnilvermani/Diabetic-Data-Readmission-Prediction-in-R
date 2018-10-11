@@ -1,0 +1,619 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Libraries needed
+
+```{r}
+library(dplyr)
+library(GGally)
+library(corrplot)
+library(caret)
+library(psych)
+library(rpart)
+library(randomForest)
+library(nnet)
+library(e1071)
+library(naivebayes)
+
+```
+
+Loading the data
+
+
+```{r}
+filename <- '/Users/swapnilvermani/Documents/diabetic_data.csv'
+raw_data <- read.table(filename, sep = ",", header = T, na.strings = "?")
+head(raw_data)
+summary(raw_data)
+```
+
+For getting the readmission prediction we dont need many columns hence we should be selecting only relevant values to make it simpler.Also we need to remove those columns which mainly has NA values.
+
+```{r}
+data <- select(raw_data,  -encounter_id, -patient_nbr, -weight,-(25:41),-(43:47))
+
+head(data)
+
+```
+Basic summary of selected data and correlation plot of numeric data
+
+```{r}
+summary(data)
+#ggpairs(data ,cardinality_threshold=NULL)
+numeric_data<-select_if(data,is.numeric)
+c <- cor(numeric_data, use= "pairwise.complete.obs")
+corrplot(c)
+```
+
+```{r}
+data$race[is.na(data$race)] <- "Other"
+
+```
+
+```{r}
+plot(data$age, main = "age distribution") # age: mode 70-80yrs normal distribution, right skewed
+plot(data$gender, main = "gender distribution") # gender: female 53% male 47%
+plot(data$A1Cresult, main = "A1C") # A1Cresult: 84% no A1c results, 8% >8
+plot(data$readmitted, main = "readmissions") # readmission: >50% no readmission
+plot(data$admission_source, main = "admission source") # emergency 60%
+```
+
+
+Changing Categorical data
+
+According to the glosssary provided and some extra help from wikipedia (https://en.wikipedia.org/wiki/List_of_ICD-9_codes) we can maniupulate the categorical variables in ordwer to have actual results
+
+```{r}
+#################################################################
+
+# Changing categorical vriables
+
+data2 <- data
+
+data2$diag_1 <- as.numeric(levels(data2$diag_1)[data2$diag_1])
+data2$diag_2 <- as.numeric(levels(data2$diag_2)[data2$diag_2])
+data2$diag_3 <- as.numeric(levels(data2$diag_3)[data2$diag_3])
+
+# diagnosis1
+data2$diagnosis_group <- factor( rep("other",nrow(data2)),ordered = F, 
+                                 levels = c("circulatory","respiratory","Digestive","Diabetes","Injury",
+                                            "Musculoskeletal","Genitourinary","Neoplasms","other"))
+data2$diagnosis_group[data2$diag_1>=390 & data2$diag_1 <= 459 | data2$diag_1==785] <- "circulatory"
+data2$diagnosis_group[data2$diag_1>=460 & data2$diag_1 <= 519 | data2$diag_1==786] <- "respiratory"
+data2$diagnosis_group[data2$diag_1>=520 & data2$diag_1 <= 579 | data2$diag_1==787] <- "Digestive"
+data2$diagnosis_group[data2$diag_1>=250 & data2$diag_1 < 251] <- "Diabetes"
+data2$diagnosis_group[data2$diag_1>800 & data2$diag_1 <= 999] <- "Injury"
+data2$diagnosis_group[data2$diag_1>=710 & data2$diag_1 <= 739] <- "Musculoskeletal"
+data2$diagnosis_group[data2$diag_1>=580 & data2$diag_1 <= 629 | data2$diag_1==788] <- "Genitourinary"
+data2$diagnosis_group[data2$diag_1>=140 & data2$diag_1 <= 239 | data2$diag_1>=790 & 
+                        data2$diag_1 <= 799 | data2$diag_1==780 | data2$diag_1>=240 & data2$diag_1 < 250 |
+                        data2$diag_1>=251 & data2$diag_1 <= 279 | data2$diag_1>=680 & data2$diag_1 <= 709 |
+                        data2$diag_1>=001 & data2$diag_1 <= 139 | data2$diag_1==781 |
+                      data2$diag_1==782 | data2$diag_1==784] <- "Neoplasms"
+
+# diagnosis_2
+data2$diagnosis_2 <- factor( rep("other",nrow(data2)),ordered = F, 
+                                 levels = c("circulatory","respiratory","Digestive","Diabetes","Injury",
+                                            "Musculoskeletal","Genitourinary","Neoplasms","other"))
+data2$diagnosis_2[data2$diag_2>=390 & data2$diag_2 <= 459 | data2$diag_2==785] <- "circulatory"
+data2$diagnosis_2[data2$diag_2>=460 & data2$diag_2 <= 519 | data2$diag_2==786] <- "respiratory"
+data2$diagnosis_2[data2$diag_2>=520 & data2$diag_2 <= 579 | data2$diag_2==787] <- "Digestive"
+data2$diagnosis_2[data2$diag_2>=250 & data2$diag_2 < 251] <- "Diabetes"
+data2$diagnosis_2[data2$diag_2>800 & data2$diag_2 <= 999] <- "Injury"
+data2$diagnosis_2[data2$diag_2>=710 & data2$diag_2 <= 739] <- "Musculoskeletal"
+data2$diagnosis_2[data2$diag_2>=580 & data2$diag_2 <= 629 | data2$diag_2==788] <- "Genitourinary"
+data2$diagnosis_2[data2$diag_2>=140 & data2$diag_2 <= 239 | data2$diag_2>=790 & 
+                        data2$diag_2 <= 799 | data2$diag_2==780 | data2$diag_2>=240 & data2$diag_2 < 250 |
+                        data2$diag_2>=251 & data2$diag_2 <= 279 | data2$diag_2>=680 & data2$diag_2 <= 709 |
+                        data2$diag_2>=001 & data2$diag_2 <= 139 | data2$diag_2==781 |
+                        data2$diag_2==782 | data2$diag_2==784] <- "Neoplasms"
+
+# diagnosis_3
+data2$diagnosis_3 <- factor( rep("other",nrow(data2)),ordered = F, 
+                                 levels = c("circulatory","respiratory","Digestive","Diabetes","Injury",
+                                            "Musculoskeletal","Genitourinary","Neoplasms","other"))
+data2$diagnosis_3[data2$diag_3>=390 & data2$diag_3 <= 459 | data2$diag_3==785] <- "circulatory"
+data2$diagnosis_3[data2$diag_3>=460 & data2$diag_3 <= 519 | data2$diag_3==786] <- "respiratory"
+data2$diagnosis_3[data2$diag_3>=520 & data2$diag_3 <= 579 | data2$diag_3==787] <- "Digestive"
+data2$diagnosis_3[data2$diag_3>=250 & data2$diag_3 < 251] <- "Diabetes"
+data2$diagnosis_3[data2$diag_3>800 & data2$diag_3 <= 999] <- "Injury"
+data2$diagnosis_3[data2$diag_3>=710 & data2$diag_3 <= 739] <- "Musculoskeletal"
+data2$diagnosis_3[data2$diag_3>=580 & data2$diag_3 <= 629 | data2$diag_3==788] <- "Genitourinary"
+data2$diagnosis_3[data2$diag_3>=140 & data2$diag_3 <= 239 | data2$diag_3>=790 & 
+                        data2$diag_3 <= 799 | data2$diag_3==780 | data2$diag_3>=240 & data2$diag_3 < 250 |
+                        data2$diag_3>=251 & data2$diag_3 <= 279 | data2$diag_3>=680 & data2$diag_3 <= 709 |
+                        data2$diag_3>=001 & data2$diag_3 <= 139 | data2$diag_3==781 |
+                        data2$diag_3==782 | data2$diag_3==784] <- "Neoplasms"
+
+# admission_source
+data2$admission_source <- factor( rep("other",nrow(data2)),ordered = F, 
+                             levels = c("clinic_referral", "emergency","other"))
+data2$admission_source[data2$admission_source_id==c(1,2,3)]<- "clinic_referral"
+data2$admission_source[data2$admission_source_id==7]<- "emergency"
+
+# discharged_to
+data2$discharged_to <- factor( rep("transferred",nrow(data2)),ordered = F, 
+                                  levels = c("home", "transferred","left_AMA"))
+data2$discharged_to[data2$discharge_disposition_id==c(1,6,8)]<- "home"
+data2$discharged_to[data2$discharge_disposition_id==7]<- "left_AMA"
+
+data2 <- select(data2, -diag_1, -diag_2, -diag_3, -admission_type_id, -discharge_disposition_id)
+data2 <- select(data2, -medical_specialty)
+data2 <- rename(data2, diag1 = diagnosis_group, diag2=diagnosis_2, diag3 = diagnosis_3)
+
+# payer_code
+data2$payer_code2 <- factor( rep("other",nrow(data2)),ordered = F, 
+                               levels = c("other", "self_pay"))
+data2$payer_code2[data2$payer_code=="SP"]<- "self_pay"
+data2 <- select(data2, -payer_code)
+data2 <- select(data2, -admission_source_id)
+data2 <- rename(data2, payer_code=payer_code2)
+
+head(data2)
+write.csv(data2,"processed_diabetes.csv")
+#######################################################
+```
+
+PCA Principal Component Analysis
+In order to reduce 23 dimensions or knowing the significant impact of our reduction we will do PCA.
+
+
+```{r}
+
+###PCA section###
+numeric_data<-scale(numeric_data)
+pcaObj <- princomp(numeric_data, cor = TRUE, scores = TRUE, covmat = NULL)
+summary(pcaObj)
+print(pcaObj)
+names(pcaObj)
+plot(pcaObj)
+pcaObj$loadings
+biplot(pcaObj,cex=0.7)
+final_data <- as.data.frame(pcaObj$scores)
+
+
+```
+
+According to PCA,
+The columns that are of utmost importance are as follows:
+
+age
+discharged_to
+time_in_hospital
+num_lab_procedures
+num_procedures
+num_medications
+number_outpatient
+number_emergency
+number_inpatient
+number_diagnoses
+insulin
+change
+diabetesMed
+diag1
+diag2
+diag3
+A1Cresult
+
+
+
+Converting the dataset into training data and validation data.
+
+
+```{r}
+
+set.seed(123)
+inTrain <- createDataPartition(y = data2$readmitted, p = .67,list = FALSE)
+train <- data2[ inTrain,]
+test <- data2[-inTrain,]
+nrow(train)
+nrow(test) 
+train
+test
+```
+###Regression###
+
+Since the output variable readmitted is a categorical variable we need to find logistic regression instead of linear Regression
+
+First by taking all the dimensions, in order to get the significance.
+
+```{r}
+train_nonbinary<-train
+test_nonbinary<-test
+train$readmitted<-ifelse(train$readmitted ==train$readmitted[1],0,1)
+test$readmitted<-ifelse(test$readmitted ==test$readmitted[1],0,1)
+test
+logit_model <- glm(readmitted ~., data=train, family=binomial(link = 'logit'))
+summary(logit_model)
+plot(logit_model)
+pred_logit <- predict(logit_model,test, type = "response")
+#pred_logit
+
+pred_logit <- ifelse(pred_logit > 0.5, 1, 0)
+#pred_logit
+result<-as.data.frame(table(pred_logit,test$readmitted))
+#result
+CorrectlyPredicted <- result[1,3]+result[4,3]
+accuracy <-CorrectlyPredicted/nrow(test)
+accuracy
+
+senstivity_result<-result[4,3]/(result[2,3]+result[4,3])
+senstivity_result
+
+specificity_result<-result[1,3]/(result[3,3]+result[1,3])
+specificity_result
+```
+Adding dimension which are most significant and then doing logistic regression
+
+```{r}
+
+normal_fit <- glm(readmitted ~ race+age+discharged_to+time_in_hospital+
+             num_lab_procedures+num_procedures+num_medications+number_outpatient+
+             number_emergency+number_inpatient+number_diagnoses+
+             insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult, 
+           data=train, family=binomial(link = 'logit'))
+summary(normal_fit)
+pred_logit <- predict(normal_fit,test, type = "response")
+pred_logit
+
+pred_logit <- ifelse(pred_logit > 0.5, 1, 0)
+pred_logit
+result<-as.data.frame(table(pred_logit,test$readmitted))
+result
+CorrectlyPredicted <- result[1,3]+result[4,3]
+accuracy <-CorrectlyPredicted/nrow(test)
+accuracy
+
+senstivity_result<-result[4,3]/(result[2,3]+result[4,3])
+senstivity_result
+
+specificity_result<-result[1,3]/(result[3,3]+result[1,3])
+specificity_result
+
+```
+
+
+###Rpart Decision Tree ####
+R part decision Trees Prediction
+
+Prediction using three level category
+
+Training
+
+```{r}
+rpart_tree <- rpart(formula = readmitted ~ age+discharged_to+time_in_hospital+
+                      num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                      number_emergency+number_inpatient+number_diagnoses+
+                      insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult, 
+                    data=train_nonbinary, method = 'class')
+summary(rpart_tree)
+
+
+```
+
+Prediction 
+
+```{r}
+pred_tree <- predict(rpart_tree, test_nonbinary, type="class")
+
+```
+
+Performance
+
+```{r}
+table(predict(rpart_tree, test_nonbinary, type="class"), test_nonbinary$readmitted)
+result<-as.data.frame(table(predict(rpart_tree, test_nonbinary, type="class"), test_nonbinary$readmitted))
+result
+confusionMatrix(pred_tree, test_nonbinary$readmitted)
+
+prop.table(table(test_nonbinary$readmitted, pred_tree),1)
+```
+
+Prediction in binary format
+
+Training
+
+```{r}
+train$readmitted<-ifelse(train$readmitted ==train$readmitted[1],0,1)
+test$readmitted<-ifelse(test$readmitted ==test$readmitted[1],0,1)
+
+rpart_tree <- rpart(formula = readmitted ~ age+discharged_to+time_in_hospital+
+                      num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                      number_emergency+number_inpatient+number_diagnoses+
+                      insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult, 
+                    data=train, method = 'class')
+summary(rpart_tree)
+```
+
+Prediction
+
+```{r}
+pred_tree <- predict(rpart_tree, test, type="class")
+
+```
+
+Performance
+
+```{r}
+table(predict(rpart_tree, test, type="class"), test$readmitted)
+result<-as.data.frame(table(predict(rpart_tree, test, type="class"), test$readmitted))
+result
+
+CorrectlyPredicted <- result[1,3]+result[4,3]
+accuracy <-CorrectlyPredicted/nrow(test)
+accuracy
+
+senstivity_result<-result[4,3]/(result[2,3]+result[4,3])
+senstivity_result
+
+specificity_result<-result[1,3]/(result[3,3]+result[1,3])
+specificity_result
+
+prop.table(table(test$readmitted, pred_tree),1)
+```
+
+###Random Forest###
+
+Prediction using random_forest
+
+Prediction using three level category
+
+Training
+```{r}
+forest_model<-randomForest(formula=readmitted ~ age+discharged_to+time_in_hospital+
+                       num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                       number_emergency+number_inpatient+number_diagnoses+
+                       insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult,
+                     data=train_nonbinary)
+print(forest_model)
+```
+
+Prediction
+
+```{r}
+pred_forest <- predict(forest_model, test, type = "response")
+table(test_nonbinary$readmitted, pred_forest)
+prop.table(table(test_nonbinary$readmitted, pred_forest),1)
+
+
+```
+
+Performance Metrics
+
+```{r}
+confusionMatrix(test_nonbinary$readmitted, pred_forest)
+```
+
+Prediction using binary level
+
+Training
+
+```{r}
+forest_model<-randomForest(formula=readmitted ~ age+discharged_to+time_in_hospital+
+                       num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                       number_emergency+number_inpatient+number_diagnoses+
+                       insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult,
+                     data=train)
+print(forest_model)
+```
+
+
+```{r}
+pred_forest <- predict(forest_model, test, type = "response")
+table(test$readmitted, pred_forest)
+prop.table(table(test$readmitted, pred_forest),1)
+```
+
+
+
+
+###Nueral Networks###
+Prediction using Nueral Networks
+
+Prediction using three level category
+
+Training
+
+```{r}
+nnet_model <- nnet(formula = readmitted ~ race+age+discharged_to+time_in_hospital+
+                     num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                     number_emergency+number_inpatient+number_diagnoses+
+                     insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult, 
+                   data=train_nonbinary, size = 10, maxit = 100)
+
+```
+
+Prediction
+```{r}
+pred_nnet <- predict(nnet_model, test_nonbinary, type = "class")
+table(test_nonbinary$readmitted,pred_nnet)
+prop.table(table(test_nonbinary$readmitted, pred_nnet),1)
+```
+
+Performance
+```{r}
+pred_nnet<-factor(pred_nnet)
+confusionMatrix(pred_nnet,test_nonbinary$readmitted)
+```
+
+Prediction using binary level
+
+Training
+
+```{r}
+nnet_model <- nnet(formula = readmitted ~ race+age+discharged_to+time_in_hospital+
+                     num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                     number_emergency+number_inpatient+number_diagnoses+
+                     insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult, 
+                   data=train, size = 10, maxit = 100)
+```
+
+Prediction
+```{r}
+pred_nnet_binary <- predict(nnet_model, test ,type="raw")
+pred_nnet_binary <- ifelse(pred_nnet_binary > 0.5, 1,0)
+
+```
+
+Performance
+```{r}
+result<-as.data.frame(table(pred_nnet_binary,test$readmitted))
+result
+CorrectlyPredicted <- result[1,3]+result[4,3]
+accuracy <-CorrectlyPredicted/nrow(test)
+accuracy
+
+senstivity_result<-result[4,3]/(result[2,3]+result[4,3])
+senstivity_result
+
+specificity_result<-result[1,3]/(result[3,3]+result[1,3])
+specificity_result
+```
+###SVM###
+Prediction using SVM
+
+Prediction using three level category
+
+Training
+
+```{r}
+SVMmodel <- svm(readmitted ~ age+discharged_to+time_in_hospital+
+                  num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                  number_emergency+number_inpatient+number_diagnoses+
+                  insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult,
+                data=train_nonbinary, kernel = "linear")
+                  
+print(SVMmodel)
+summary(SVMmodel)
+```
+
+Prediction
+```{r}
+x <- select(test, -readmitted)
+y <- select(test, readmitted)
+pred <- predict(SVMmodel, x)
+pred_svm <- pred
+
+```
+
+Performance
+
+```{r}
+prop.table(table(test$readmitted, pred_svm),1)
+confusionMatrix(test$pred_readmit, pred_svm)
+```
+
+Prediction using binary level
+
+Training
+```{r}
+SVMmodel <- svm(readmitted ~ age+discharged_to+time_in_hospital+
+                  num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                  number_emergency+number_inpatient+number_diagnoses+
+                  insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult,
+                data=train,kernel = "linear",
+                 type = "C-classification", cross = 10, cost = 0.01, gamma = 1000)
+                  
+print(SVMmodel)
+summary(SVMmodel)
+```
+
+
+Prediction
+```{r}
+pred_SVM_binary<-predict(SVMmodel,test,, decision.values = F)
+pred_SVM_binary <- ifelse(pred_SVM_binary > 0.5, 1,0)
+```
+
+Performance
+```{r}
+result<-as.data.frame(table(pred_SVM_binary,test$readmitted))
+result
+CorrectlyPredicted <- result[1,3]+result[4,3]
+accuracy <-CorrectlyPredicted/nrow(test)
+accuracy
+
+senstivity_result<-result[4,3]/(result[2,3]+result[4,3])
+senstivity_result
+
+specificity_result<-result[1,3]/(result[3,3]+result[1,3])
+specificity_result
+```
+
+
+###Naive Bayes###
+Prediction using nbayes
+
+Prediction using three level category
+
+Training
+
+```{r}
+nbayesmodel <- naiveBayes(readmitted ~ age+discharged_to+time_in_hospital+
+                            num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                            number_emergency+number_inpatient+number_diagnoses+
+                            insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult, 
+                          data = train_nonbinary)
+```
+
+Prediction
+
+```{r}
+pred <- predict(nbayesmodel, test_nonbinary, type = "class")
+pred_nbayes <- pred
+
+```
+
+Performance
+```{r}
+prop.table(table(test_nonbinary$readmitted, pred_nbayes),1)
+pred_nbayes<-factor(pred_nbayes)
+confusionMatrix(pred_nbayes, test_nonbinary$readmitted)
+```
+Prediction using binary level
+
+Training
+
+```{r}
+train$readmitted <- as.factor(train$readmitted)
+test$readmitted <- as.factor(test$readmitted)
+length(test$readmitted)
+nbayesmodel_binary <- naive_bayes(readmitted ~ age+discharged_to+time_in_hospital+
+                            num_lab_procedures+num_procedures+num_medications+number_outpatient+
+                            number_emergency+number_inpatient+number_diagnoses+
+                            insulin+change+diabetesMed+diag1+diag2+diag3+A1Cresult, 
+                          data = train ,laplace = 1, usekernel = T, prior = NULL)
+```
+
+Prediction
+
+```{r}
+pred <- predict(nbayesmodel_binary, test, type = "prob")
+pred_nbayes_binary <- pred
+
+maxidx <- function(arr) {
+        return(  which(arr == max(arr)) )
+}
+idx.nb <- apply(pred_nbayes_binary, c(1),maxidx)
+```
+
+
+Performance
+```{r}
+result<-as.data.frame(table(idx.nb-1,test$readmitted))
+result
+CorrectlyPredicted <- result[1,3]+result[4,3]
+accuracy <-CorrectlyPredicted/nrow(test)
+accuracy
+
+senstivity_result<-result[4,3]/(result[2,3]+result[4,3])
+senstivity_result
+
+specificity_result<-result[1,3]/(result[3,3]+result[1,3])
+specificity_result
+```
+
+
+
